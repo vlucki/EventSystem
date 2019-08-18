@@ -61,12 +61,6 @@ namespace Events
 		{
 			return &caller == &possibleCaller; //just compare memory addresses
 		}
-
-		template<typename FuncType>
-		ReturnType Execute(FuncType* function, Args&& ...args)
-		{
-			return caller.*function(std::forward<Args>(args)...);
-		}
 	};
 	
 	///<summary>
@@ -84,8 +78,7 @@ namespace Events
 
 		ReturnType operator()(Args&& ...args) override
 		{
-			return MemberFunctionWrapper<CallerType, ReturnType, Args...>::Execute(funcPtr, std::forward<Args>(args)...);
-			//return (this->caller.*funcPtr)(std::forward<Args>(args)...);
+			return (this->caller.*funcPtr)(std::forward<Args>(args)...);
 		}
 
 		bool IsFunctionFromCaller(ReturnType(CallerType::* otherFuncPtr)(Args...), CallerType& caller)
@@ -175,7 +168,7 @@ namespace Events
 			for (auto& function : boundFunctions)
 			{
 				//Note to self: can't call the () operator directly like in the FunctionWrappers because the pointer is not the function itself.
-				//Must dereference it firts, otherwise the compiler won't be happy and complain about a function receiving X amount of parameters not existing.
+				//Must dereference it first, otherwise the compiler won't be happy and complain about a function receiving X amount of parameters not existing.
 				(*function)(std::forward<Args>(args)...);
 			}
 		}

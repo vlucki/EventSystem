@@ -5,3 +5,8 @@
 /.vs
 /Debug
 /EventSystem/Debug
+/EventSystem.sln
+/EventSystem/Main.cpp
+/EventSystem/EventSystem.vcxproj.user
+/EventSystem/EventSystem.vcxproj.filters
+/EventSystem/EventSystem.vcxproj
