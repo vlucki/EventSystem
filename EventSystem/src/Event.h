@@ -8,120 +8,98 @@ namespace Events
 	///Base class for every function wrapper in the system. 
 	///</summary>
 	template<typename ReturnType, typename ...Args>
-	class FunctionWrapper
+	class FunctionWrapperBase
 	{
 	public:
 		/// Execute function with given arguments
 		virtual ReturnType operator()(Args&& ...args) = 0;
 	};
 
+	template<typename Signature, typename ReturnType, typename ...Args>
+	class FunctionWrapper : public FunctionWrapperBase<ReturnType, Args...>
+	{
+	protected:
+		Signature funcPtr;
+	public:
+		FunctionWrapper(Signature funcPtr) : funcPtr(funcPtr) { }
+
+		bool IsFunction(Signature function)
+		{
+			return funcPtr == function;
+		}
+	};
+
 	///<summary>
 	///Wrapper for global or static functions.
 	///</summary>
-	template<typename ReturnType, typename ...Args>
-	class GlobalFunctionWrapper : public FunctionWrapper<ReturnType, Args...>
+	template<typename ReturnType, typename ...Args >
+	class GlobalFunctionWrapper : public FunctionWrapper<ReturnType(*)(Args...), ReturnType, Args...>
 	{
-	private:
-		ReturnType(*funcPtr)(Args...);
-
 	public:
-		GlobalFunctionWrapper(ReturnType(*funcPtr)(Args...)) : funcPtr(funcPtr) {}
+		GlobalFunctionWrapper(ReturnType(*funcPtr)(Args...)) : FunctionWrapper<ReturnType(*)(Args...), ReturnType, Args...>(funcPtr) { }
 
-		/// See FunctionWrapper operator()
-		ReturnType operator()(Args&& ...args) override
+		ReturnType operator() (Args&& ...args) override
 		{
-			return funcPtr(std::forward<Args>(args)...);
+			return FunctionWrapper<ReturnType(*)(Args...), ReturnType, Args...>::funcPtr(std::forward<Args>(args)...);
 		}
 
 		bool operator ==(ReturnType(*otherFuncPtr)(Args...)) const
 		{
-			return funcPtr == otherFuncPtr;
+			return FunctionWrapper<ReturnType(*)(Args...), ReturnType, Args...>::funcPtr == otherFuncPtr;
 		}
-
 
 		bool operator ==(GlobalFunctionWrapper<ReturnType, Args...>& otherGlobalFunction) const
 		{
-			return funcPtr == otherGlobalFunction.funcPtr;
+			return FunctionWrapper<ReturnType(*)(Args...), ReturnType, Args...>::funcPtr == otherGlobalFunction.funcPtr;
 		}
 	};
 
 	///<summary>
 	///Base wrapper class for non-static class functions.
 	///</summary>
-	template<typename CallerType, typename ReturnType, typename ...Args>
-	class MemberFunctionWrapper : public FunctionWrapper<ReturnType, Args...>
+	template<typename Signature, typename CallerType, typename ReturnType, typename ...Args>
+	class MemberFunctionWrapper : public FunctionWrapper<Signature, ReturnType, Args...>
 	{
-	protected:
+	private:
 		CallerType& caller;
-
 	public:
-		MemberFunctionWrapper(CallerType& caller) : caller(caller) {}
+		MemberFunctionWrapper(Signature funcPtr, CallerType& caller) :
+			FunctionWrapper<Signature, ReturnType, Args...>(funcPtr), caller(caller) { }
+
+		ReturnType operator()(Args&& ...args) override
+		{
+			//return caller.funcPtr(std::forward<Args>(args)...);
+			//gotta wrap everything in ( ) before the parameters, else the compiler complains about a parameter missing and stuff...
+			return (caller.*(FunctionWrapper<Signature, ReturnType, Args...>::funcPtr))(std::forward<Args>(args)...);
+		}
 
 		bool IsCaller(CallerType& possibleCaller)
 		{
 			return &caller == &possibleCaller; //just compare memory addresses
 		}
 	};
-	
+
 	///<summary>
 	///Wrapper for non-static non-const class functions.
 	///</summary>
 	template<typename CallerType, typename ReturnType, typename ...Args>
-	class RegularMemberFunctionWrapper : public MemberFunctionWrapper<CallerType, ReturnType, Args...>
+	class RegularMemberFunctionWrapper : public MemberFunctionWrapper<ReturnType(CallerType::*)(Args...), CallerType, ReturnType, Args...>
 	{
-	private:
-		ReturnType(CallerType::* funcPtr)(Args...);
-
 	public:
-		RegularMemberFunctionWrapper(ReturnType(CallerType::* funcPtr)(Args...), CallerType& caller) : 
-		MemberFunctionWrapper<CallerType, ReturnType, Args...>(caller), funcPtr(funcPtr) {}
-
-		ReturnType operator()(Args&& ...args) override
-		{
-			return (this->caller.*funcPtr)(std::forward<Args>(args)...);
-		}
-
-		bool IsFunctionFromCaller(ReturnType(CallerType::* otherFuncPtr)(Args...), CallerType& caller)
-		{
-			return IsFunction(otherFuncPtr) && IsCaller(caller);
-		}
-
-		bool IsFunction(ReturnType(CallerType::* otherFuncPtr)(Args...)) 
-		{
-			return funcPtr == otherFuncPtr;
-		}
+		RegularMemberFunctionWrapper(ReturnType(CallerType::* funcPtr)(Args...), CallerType& caller) :
+			MemberFunctionWrapper<ReturnType(CallerType::*)(Args...), CallerType, ReturnType, Args...>(funcPtr, caller) { }
 	};
 	
 	///<summary>
 	///Wrapper for non-static const class functions.
 	///</summary>
 	template<typename CallerType, typename ReturnType, typename ...Args>
-	class ConstMemberFunctionWrapper : public MemberFunctionWrapper<CallerType, ReturnType, Args...>
+	class ConstMemberFunctionWrapper : public MemberFunctionWrapper<ReturnType(CallerType::*)(Args...) const, CallerType, ReturnType, Args...>
 	{
-	private:
-		ReturnType(CallerType::*funcPtr) (Args...) const;
-
 	public:
 		ConstMemberFunctionWrapper(ReturnType(CallerType::* funcPtr)(Args...) const, CallerType& caller) :
-			MemberFunctionWrapper<CallerType, ReturnType, Args...>(caller), funcPtr(funcPtr) { }
-
-		/// See FunctionWrapper operator()
-		ReturnType operator()(Args&& ...args) override
-		{
-			return (this->caller.*funcPtr)(std::forward<Args>(args)...);
-		}
-
-		bool IsFunctionFromCaller(ReturnType(CallerType::* otherFuncPtr)(Args...) const, CallerType& caller)
-		{
-			return IsFunction(otherFuncPtr) && IsCaller(caller);
-		}
-
-		bool IsFunction(ReturnType(CallerType::* otherFuncPtr)(Args...) const)
-		{
-			return funcPtr == otherFuncPtr;
-		}
-	};
-	
+			MemberFunctionWrapper<ReturnType(CallerType::*)(Args...) const, CallerType, ReturnType, Args...>(funcPtr, caller) {	}
+	};	
 
 
 	/// <summary>
@@ -134,7 +112,7 @@ namespace Events
 	class Event
 	{
 	private:
-		std::vector<std::unique_ptr<FunctionWrapper<void, Args...>>> boundFunctions;
+		std::vector<std::unique_ptr<FunctionWrapperBase<void, Args...>>> boundFunctions;
 
 	private:
 
@@ -157,7 +135,6 @@ namespace Events
 		}
 
 	public:
-
 		~Event()
 		{
 			UnbindAll();
@@ -173,6 +150,8 @@ namespace Events
 			}
 		}
 
+		//TODO: research how to go about creating a Bind method that works for both reference AND value parameters
+
 		///<summary>
 		///Receives a member function from a given object and stores it in the list of functions attached to this event.
 		///</summary>
@@ -182,16 +161,23 @@ namespace Events
 			boundFunctions.emplace_back(std::make_unique<RegularMemberFunctionWrapper<CallerType, void, Args...>>(funcPtr, caller));
 		}
 
-
+		///<summary>
+		///Receives a member function from a given object and stores it in the list of functions attached to this event.
+		///</summary>
+		template <typename CallerType>
+		void Bind(void (CallerType::* funcPtr)(Args&&...), CallerType& caller)
+		{
+			boundFunctions.emplace_back(std::make_unique<RegularMemberFunctionWrapper<CallerType, void, Args...>>(funcPtr, caller));
+		}
+		
 		///<summary>
 		///Receives a const member function from a given object and stores it in the list of functions attached to this event.
 		///</summary>
 		template <typename CallerType>
-		void Bind(void(CallerType::* funcPtr) (Args...) const, CallerType& caller)
+		void Bind(void(CallerType::* funcPtr) (Args&&...) const, CallerType& caller)
 		{
 			boundFunctions.emplace_back(std::make_unique<ConstMemberFunctionWrapper<CallerType, void, Args...>>(funcPtr, caller));
 		}
-
 
 		///<summary>
 		///Receives a global function and stores it in the list of functions attached to this event.
@@ -200,7 +186,6 @@ namespace Events
 		{
 			boundFunctions.emplace_back(std::make_unique<GlobalFunctionWrapper<void, Args...>>(funcPtr));
 		}
-
 
 		///<summary>
 		///Removes a global function from the list of functions attached to this event.
@@ -233,8 +218,7 @@ namespace Events
 				([funcPtr, &caller](ConstMemberFunctionWrapper<CallerType, void, Args...>* v)
 					{ return v->IsFunctionFromCaller(funcPtr, caller); });
 		}
-
-
+		
 		///<summary>
 		///Removes every function from the list of functions attached to this event.
 		///</summary>
